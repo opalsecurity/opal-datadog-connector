@@ -1,0 +1,13 @@
+Dockerfile
+api/openapi.yaml
+datadogconnector/model_access_level.go
+datadogconnector/model_add_resource_user_request.go
+datadogconnector/model_error.go
+datadogconnector/model_resource.go
+datadogconnector/model_resource_access_levels_response.go
+datadogconnector/model_resource_response.go
+datadogconnector/model_resource_user.go
+datadogconnector/model_resource_users_response.go
+datadogconnector/model_resources_response.go
+datadogconnector/model_user.go
+datadogconnector/model_users_response.go

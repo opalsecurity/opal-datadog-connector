@@ -1,0 +1,11 @@
+{
+  "generateInterfaces": true,
+  "enumClassPrefix": true,
+  "isGoSubmodule": true,
+  "packageName": "datadogconnector",
+  "apiPath": "datadogconnector",
+  "gitHost": "github.com",
+  "gitUserId": "opalsecurity",
+  "gitRepoId": "opal-datadog-connector",
+  "serverPort": "8090"
+}
