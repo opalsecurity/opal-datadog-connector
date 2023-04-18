@@ -10,37 +10,245 @@
 package datadogconnector
 
 import (
+	"fmt"
+	"math"
 	"net/http"
 
+	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
+	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
 	"github.com/gin-gonic/gin"
 )
 
-// AddResourceUser - 
+const (
+	resourcePageSize = int64(100) // maximum allowed number by Datadog API
+)
+
+// AddResourceUser -
 func AddResourceUser(c *gin.Context) {
+	ctx := datadog.NewDefaultContext(c.Request.Context())
+	apiClient := GetDatadogClient()
+	api := datadogV2.NewRolesApi(apiClient)
+
+	var requestBody AddResourceUserRequest
+	if err := c.BindJSON(&requestBody); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, &Error{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("Invalid request body: %s", err.Error()),
+		})
+		return
+	}
+
+	_, resp, err := api.AddUserToRole(ctx, c.Param("resource_id"), datadogV2.RelationshipToUser{
+		Data: datadogV2.RelationshipToUserData{
+			Id:   requestBody.UserId,
+			Type: datadogV2.USERSTYPE_USERS,
+		},
+	})
+	if err != nil {
+		c.AbortWithStatusJSON(resp.StatusCode, &Error{
+			Code:    int32(resp.StatusCode),
+			Message: fmt.Sprintf("Error adding user to role: %s", err.Error()),
+		})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// GetResource - 
+// GetResource -
 func GetResource(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{})
+	ctx := datadog.NewDefaultContext(c.Request.Context())
+	apiClient := GetDatadogClient()
+	api := datadogV2.NewRolesApi(apiClient)
+
+	roleResponse, resp, err := api.GetRole(ctx, c.Param("resource_id"))
+	if err != nil {
+		c.AbortWithStatusJSON(resp.StatusCode, &Error{
+			Code:    int32(resp.StatusCode),
+			Message: fmt.Sprintf("Error getting role: %s", err.Error()),
+		})
+		return
+	}
+
+	if role, ok := roleResponse.GetDataOk(); ok {
+		var name string
+		if role.GetAttributes().Name != nil {
+			name = *role.GetAttributes().Name
+		}
+		c.JSON(http.StatusOK, &Resource{
+			Id:   role.GetId(),
+			Name: name,
+		})
+	} else {
+		c.AbortWithStatusJSON(http.StatusNotFound, &Error{
+			Code:    http.StatusNotFound,
+			Message: "Error getting role: role response is empty",
+		})
+	}
 }
 
-// GetResourceAccessLevels - 
+// GetResourceAccessLevels -
 func GetResourceAccessLevels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// GetResourceUsers - 
+// GetResourceUsers -
 func GetResourceUsers(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{})
+	ctx := datadog.NewDefaultContext(c.Request.Context())
+	apiClient := GetDatadogClient()
+	api := datadogV2.NewRolesApi(apiClient)
+
+	var pageNumber int64 = 0
+	if encodedCursor := c.Query("cursor"); encodedCursor != "" {
+		cursor, err := decodeCursor(encodedCursor)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, &Error{
+				Code:    http.StatusBadRequest,
+				Message: fmt.Sprintf("Invalid cursor: %s", err.Error()),
+			})
+			return
+		}
+		pageNumber = int64(cursor.NextPage)
+	}
+
+	roleUsersResponse, resp, err := api.ListRoleUsers(ctx, c.Param("resource_id"), datadogV2.ListRoleUsersOptionalParameters{
+		PageNumber: &pageNumber,
+		PageSize:   datadog.PtrInt64(resourcePageSize),
+	})
+	if err != nil {
+		c.AbortWithStatusJSON(resp.StatusCode, &Error{
+			Code:    int32(resp.StatusCode),
+			Message: fmt.Sprintf("Error listing role users: %s", err.Error()),
+		})
+		return
+	}
+
+	var users []ResourceUser
+	for _, user := range roleUsersResponse.GetData() {
+		var email string
+		if user.GetAttributes().Email != nil {
+			email = *user.GetAttributes().Email
+		}
+		users = append(users, ResourceUser{
+			UserId: user.GetId(),
+			Email:  email,
+		})
+	}
+
+	var nextCursor *string
+	if page, ok := roleUsersResponse.Meta.GetPageOk(); ok {
+		if totalUsers := page.TotalFilteredCount; totalUsers != nil && *totalUsers > userPageSize {
+			totalPages := math.Ceil(float64(*totalUsers) / float64(userPageSize))
+			if pageNumber < int64(totalPages)-1 {
+				nextPage := pageNumber + 1
+				encodedCursor, err := encodeCursor(&Cursor{
+					NextPage: int(nextPage),
+				})
+				if err != nil {
+					c.AbortWithStatusJSON(http.StatusInternalServerError, &Error{
+						Code:    http.StatusInternalServerError,
+						Message: fmt.Sprintf("Error encoding cursor: %s", err.Error()),
+					})
+					return
+				}
+				nextCursor = &encodedCursor
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, ResourceUsersResponse{
+		NextCursor: nextCursor,
+		Users:      users,
+	})
 }
 
-// GetResources - 
+// GetResources -
 func GetResources(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{})
+	ctx := datadog.NewDefaultContext(c.Request.Context())
+	apiClient := GetDatadogClient()
+	api := datadogV2.NewRolesApi(apiClient)
+
+	var pageNumber int64 = 0
+	if encodedCursor := c.Query("cursor"); encodedCursor != "" {
+		cursor, err := decodeCursor(encodedCursor)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, &Error{
+				Code:    http.StatusBadRequest,
+				Message: fmt.Sprintf("Invalid cursor: %s", err.Error()),
+			})
+			return
+		}
+		pageNumber = int64(cursor.NextPage)
+	}
+
+	rolesResponse, resp, err := api.ListRoles(ctx, datadogV2.ListRolesOptionalParameters{
+		PageNumber: &pageNumber,
+		PageSize:   datadog.PtrInt64(resourcePageSize),
+	})
+	if err != nil {
+		c.AbortWithStatusJSON(resp.StatusCode, &Error{
+			Code:    int32(resp.StatusCode),
+			Message: fmt.Sprintf("Error listing roles: %s", err.Error()),
+		})
+		return
+	}
+
+	var resources []Resource
+	for _, role := range rolesResponse.GetData() {
+		var name string
+		if role.GetAttributes().Name != nil {
+			name = *role.GetAttributes().Name
+		}
+		resources = append(resources, Resource{
+			Id:   role.GetId(),
+			Name: name,
+		})
+	}
+
+	var nextCursor *string
+	if page, ok := rolesResponse.Meta.GetPageOk(); ok {
+		if totalUsers := page.TotalFilteredCount; totalUsers != nil && *totalUsers > userPageSize {
+			totalPages := math.Ceil(float64(*totalUsers) / float64(userPageSize))
+			if pageNumber < int64(totalPages)-1 {
+				nextPage := pageNumber + 1
+				encodedCursor, err := encodeCursor(&Cursor{
+					NextPage: int(nextPage),
+				})
+				if err != nil {
+					c.AbortWithStatusJSON(http.StatusInternalServerError, &Error{
+						Code:    http.StatusInternalServerError,
+						Message: fmt.Sprintf("Error encoding cursor: %s", err.Error()),
+					})
+					return
+				}
+				nextCursor = &encodedCursor
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, ResourcesResponse{
+		NextCursor: nextCursor,
+		Resources:  resources,
+	})
 }
 
-// RemoveResourceUser - 
+// RemoveResourceUser -
 func RemoveResourceUser(c *gin.Context) {
+	ctx := datadog.NewDefaultContext(c.Request.Context())
+	apiClient := GetDatadogClient()
+	api := datadogV2.NewRolesApi(apiClient)
+
+	_, resp, err := api.RemoveUserFromRole(ctx, c.Param("resource_id"), datadogV2.RelationshipToUser{
+		Data: datadogV2.RelationshipToUserData{
+			Id:   c.Param("user_id"),
+			Type: datadogV2.USERSTYPE_USERS,
+		},
+	})
+	if err != nil {
+		c.AbortWithStatusJSON(resp.StatusCode, &Error{
+			Code:    int32(resp.StatusCode),
+			Message: fmt.Sprintf("Error removing user to role: %s", err.Error()),
+		})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{})
 }

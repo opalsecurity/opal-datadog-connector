@@ -14,7 +14,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 
@@ -45,40 +44,35 @@ func validateOpalSignature(signingSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		opalSignature := c.GetHeader("X-Opal-Signature")
 		if opalSignature == "" {
-			c.JSON(401, Error{
-				Code:    401,
+			c.AbortWithStatusJSON(http.StatusUnauthorized, &Error{
+				Code:    http.StatusUnauthorized,
 				Message: "X-Opal-Signature header is missing",
 			})
-			c.Abort()
 			return
 		}
 		opalRequestTimestamp := c.GetHeader("X-Opal-Request-Timestamp")
 		if opalRequestTimestamp == "" {
-			c.JSON(401, Error{
-				Code:    401,
+			c.AbortWithStatusJSON(http.StatusUnauthorized, &Error{
+				Code:    http.StatusUnauthorized,
 				Message: "X-Opal-Request-Timestamp header is missing",
 			})
-			c.Abort()
 			return
 		}
 		serializedBlob, err := json.Marshal(c.Request.Body)
 		if err != nil {
-			c.JSON(500, Error{
-				Code:    500,
-				Message: "Unable to serialize payload",
+			c.AbortWithStatusJSON(http.StatusInternalServerError, &Error{
+				Code:    http.StatusInternalServerError,
+				Message: "Unable to serialize payload from request body",
 			})
-			c.Abort()
 			return
 		}
 
 		signature, err := GenerateSignature(signingSecret, opalRequestTimestamp, serializedBlob)
-		fmt.Printf("signature %s timestamp %s body %s signature %s", opalSignature, opalRequestTimestamp, string(serializedBlob), signingSecret)
 		if signature != opalSignature || err != nil {
-			c.JSON(401, Error{
-				Code:    401,
+			c.AbortWithStatusJSON(http.StatusUnauthorized, &Error{
+				Code:    http.StatusUnauthorized,
 				Message: "Invalid signature",
 			})
-			c.Abort()
 			return
 		}
 
@@ -104,6 +98,7 @@ type Routes []Route
 // NewRouter returns a new router.
 func NewRouter() *gin.Engine {
 	router := gin.Default()
+
 	router.Use(validateOpalSignature(os.Getenv("OPAL_SIGNING_SECRET")))
 
 	for _, route := range routes {

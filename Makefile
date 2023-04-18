@@ -3,10 +3,10 @@ SHELL := /bin/bash
 MAIN_GO_SRC=main.go
 
 GOAUTO=gin -i -p 8091 --appPort 8090 run main.go
-ENV_SETTER_SCRIPT=.secrets
+SECRETS_DOTFILE=.secrets
 
 run:
-	source $(ENV_SETTER_SCRIPT) dev-local && $(GOAUTO)
+	source $(SECRETS_DOTFILE) && $(GOAUTO)
 	
 # TODO: move .yaml to a separate repo
 gen-openapi:
