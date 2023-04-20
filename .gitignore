@@ -16,3 +16,5 @@
 
 gin-bin
 .secrets
+.secrets.env
+.vscode

@@ -10,10 +10,12 @@
 package datadogconnector
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io/ioutil"
 	"net/http"
 	"os"
 
@@ -58,7 +60,24 @@ func validateOpalSignature(signingSecret string) gin.HandlerFunc {
 			})
 			return
 		}
-		serializedBlob, err := json.Marshal(c.Request.Body)
+
+		// Read request body, once the request body is read, it cannot be read again
+		// so we need to save it in a variable and then reassign it to the Request.Body
+		var bodyBytes []byte
+		var err error
+		if c.Request.Body != nil {
+			bodyBytes, err = ioutil.ReadAll(c.Request.Body)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, &Error{
+					Code:    http.StatusInternalServerError,
+					Message: "Unable to read request body",
+				})
+				return
+			}
+		}
+		c.Request.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
+
+		serializedBlob, err := json.Marshal(bodyBytes)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, &Error{
 				Code:    http.StatusInternalServerError,
