@@ -69,21 +69,25 @@ func GetResource(c *gin.Context) {
 		return
 	}
 
-	if role, ok := roleResponse.GetDataOk(); ok {
-		var name string
-		if role.GetAttributes().Name != nil {
-			name = *role.GetAttributes().Name
-		}
-		c.JSON(http.StatusOK, &Resource{
-			Id:   role.GetId(),
-			Name: name,
-		})
-	} else {
+	role, ok := roleResponse.GetDataOk()
+	if !ok {
 		c.AbortWithStatusJSON(http.StatusNotFound, &Error{
 			Code:    http.StatusNotFound,
 			Message: "Error getting role: role response is empty",
 		})
+		return
 	}
+
+	var name string
+	if role.GetAttributes().Name != nil {
+		name = *role.GetAttributes().Name
+	}
+	c.JSON(http.StatusOK, ResourceResponse{
+		Resource: Resource{
+			Id:   role.GetId(),
+			Name: name,
+		},
+	})
 }
 
 // GetResourceAccessLevels -
