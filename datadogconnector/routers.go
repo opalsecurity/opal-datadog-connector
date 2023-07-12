@@ -14,10 +14,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
@@ -61,6 +61,7 @@ func validateOpalSignature(signingSecret string) gin.HandlerFunc {
 			return
 		}
 
+		var bodyStr string
 		// Read request body, once the request body is read, it cannot be read again
 		// so we need to save it in a variable and then reassign it to the Request.Body
 		var bodyBytes []byte
@@ -74,19 +75,14 @@ func validateOpalSignature(signingSecret string) gin.HandlerFunc {
 				})
 				return
 			}
+			c.Request.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
+			bodyStr = strings.TrimSpace(string(bodyBytes))
 		}
-		c.Request.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
-
-		serializedBlob, err := json.Marshal(bodyBytes)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, &Error{
-				Code:    http.StatusInternalServerError,
-				Message: "Unable to serialize payload from request body",
-			})
-			return
+		if bodyStr == "" {
+			bodyStr = "{}"
 		}
 
-		signature, err := GenerateSignature(signingSecret, opalRequestTimestamp, serializedBlob)
+		signature, err := GenerateSignature(signingSecret, opalRequestTimestamp, []byte(bodyStr))
 		if signature != opalSignature || err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, &Error{
 				Code:    http.StatusUnauthorized,
